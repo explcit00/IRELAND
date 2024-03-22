@@ -1,0 +1,228 @@
+options(rgl.useNULL = FALSE)
+
+
+# Packages ----------------------------------------------------------------
+install.packages("tidyverse")
+install.packages("sf")
+install.packages("tmap")
+install.packages("ggplot2")
+install.packages("mapview")
+install.packages("stars")
+install.packages("rayshader")
+install.packages("MetBrewer")
+install.packages("colorspace")
+install.packages("rayrender")
+install.packages("magick")
+install.packages("extrafont")
+install.packages("jpeg")
+
+library(tidyverse)
+library(sf)
+library(tmap)
+library(ggplot2)
+library(mapview)
+library(stars)
+library(rayshader)
+library(MetBrewer)
+library(colorspace)
+library(rayrender)
+library(magick)
+library(extrafont)
+library(jpeg)
+
+
+# Data --------------------------------------------------------------------
+
+
+# load population 400m H3 hexagon
+
+DVS_hex <-
+  st_read("Data/k_p_IE_20220630.gpkg") %>% 
+  st_transform(3106)
+
+# load population by administrative boundary
+DVS_admin <-
+  st_read("Data/k_p_IE_20231101.gpkg") %>% 
+  st_transform(3106)
+
+
+
+# Creating BD Boundary ----------------------------------------------------
+
+
+DVS_boundary <-
+  DVS_admin %>% 
+  st_geometry %>%
+  st_union %>%
+  st_sf %>% 
+  st_make_valid()
+
+
+
+# Clean the data ----------------------------------------------------------
+
+na.omit(data)
+
+ na.omit(bd_hex, geom=FALSE)
+ na.omit(bd_admin, geom=FALSE)
+
+# check the plot
+
+pallete <- MetBrewer::met.brewer(name="Hokusai2", direction = -1)
+ggplot(DVS_hex) +
+  geom_sf(aes(fill = population),
+          color = pallete[1],
+          linewidth = 0) +
+  geom_sf(
+    data = DVS_boundary,
+    fill = NA,
+    color = "gray",
+    linetype = "dashed",
+    linewidth = 1
+  )
+
+# setting the bd boundary as a bounding box
+
+bbox <- st_bbox(DVS_boundary)
+
+# finding the aspect ratio
+
+bottom_left <- st_point(c(bbox[["xmin"]], bbox[["ymin"]])) %>% 
+  st_sfc(crs = 3106)
+bottom_right <- st_point(c(bbox[["xmax"]], bbox[["ymin"]])) %>%
+  st_sfc(crs = 3106)
+top_left <- st_point(c(bbox[["xmin"]], bbox[["ymax"]])) %>% 
+  st_sfc(crs = 3106)
+top_right <- st_point(c(bbox[["xmin"]], bbox[["ymax"]])) %>% 
+  st_sfc(crs = 3106)
+
+
+# Calculate width and height ratios
+# Adjust width and height based on ratios
+
+width <- st_distance(bottom_left, bottom_right)
+height <- st_distance(bottom_left, top_left)
+
+if(width > height) {
+  w_ratio = 1
+  h_ratio = height / width
+  
+} else {
+  h_ratio = 1.1
+  w_ratio = width / height
+}
+
+
+# convert to raster to convert to matrix
+
+size = 1000 * 3.5
+
+pop_raster <- st_rasterize(
+  DVS_hex,
+  nx = floor(size * w_ratio) %>% as.numeric(),
+  ny = floor(size * h_ratio) %>% as.numeric()
+)
+
+pop_matrix <- matrix(pop_raster$population,
+                     nrow = floor(size * w_ratio),
+                     ncol = floor(size * h_ratio))
+
+
+# Create color palette 
+
+color <- MetBrewer::met.brewer(name="Hokusai2", direction = -1)
+tx <- grDevices::colorRampPalette(color, bias = 2)(256)
+swatchplot(tx)
+swatchplot(color)
+
+
+# plotting 3D
+
+rgl::close3d()
+pop_matrix %>%
+  height_shade(texture = tx) %>%
+  plot_3d(heightmap = pop_matrix,
+          zscale = 250 / 35,
+          solid = F,
+          shadowdepth = 0, 
+          fov = 100,
+        )
+          
+          
+render_camera(theta =-90, phi = 50, zoom = .8)
+
+rgl::rglwidget()
+
+
+outfile <- glue::glue("D:/Git_IRELAND/plotz.jpeg")
+
+
+{
+    start_time <- Sys.time()
+   cat(crayon::cyan(start_time), "\n")
+   if(!file.exists(outfile)) 
+   {
+       jpeg::writeJPEG(matrix(1), target = outfile)
+     }
+  
+    render_highquality(
+  filename = outfile,
+  interactive = FALSE,
+  lightdirection = 225,
+  lightaltitude = c(20, 80),
+  lightcolor = c("white", "white"),
+  lightintensity = c(600, 100),
+  width = 500,
+  height = 500,
+  samples = 2
+)
+    
+    end_time <- Sys.time()
+    diff <- end_time - start_time
+    cat(crayon::cyan(diff), "\n")
+}
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+# Edit & Annotate Image ---------------------------------------------------
+
+
+pop_raster <- image_read("C:/Users/ddr10/Documents/Git_IRE/f_plot_IRE.jpeg")
+
+text_color <- darken(color[9], .5)
+#text_color <- darken(color[2], .4)
+swatchplot(text_color)
+
+pop_raster %>%
+  # image_crop(gravity = "center", geometry = "") %>%
+  image_annotate("IRELAND",
+                 gravity = "northeast",
+                 location = "+50+50",
+                 color = text_color,
+                 size = 150,
+                 font = "Ananda Namaste",
+                 weight = 700,
+                 # degrees = 0,
+  ) %>%
+  image_annotate("POPULATION DENSITY MAP",
+                 gravity = "northeast",
+                 location = "+50+200",
+                 color = text_color,
+                 size = 36.5,
+                 font = "FuturaBT-Medium",
+                 weight = 500,
+                 # degrees = 0,
+  ) %>%
+  image_annotate("Visualization by: DS2A Ephraem, Miguel, Ashly, Nezuko",
+                 gravity = "southwest",
+                 location = "+20+20",
+                 color = text_color,
+                 font = "FuturaBT-Medium",
+                 size = 20,
+                 # degrees = 0,
+  ) %>%
+  image_write("C:/Users/ddr10/Documents/Git_IRE/fnl_plot_IRE.jpeg", format = "png", quality = 100)
+
+
+# The End -----------------------------------------------------------------
